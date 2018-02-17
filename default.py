@@ -277,7 +277,6 @@ if __name__ == "__main__":
     # Some gradients
     if not xbmcvfs.exists(ADDON_DATA_PATH):
         xbmcvfs.mkdir(ADDON_DATA_PATH)
-    targetfile = os.path.join(ADDON_DATA_PATH, 'filename.png')
     gradient = {
         'sunshine': Gradient(
             Color(255, 248, 9),
@@ -330,10 +329,10 @@ if __name__ == "__main__":
     Cache = Check_XBMC_Cache(targetfile)
     if Cache != "":
         HOME.setProperty('Delaunay_ONE', Cache)
-        exit
+        quit()
     Img = Check_XBMC_Internal(targetfile, input_filename)
     if not Img:
-        exit
+        quit()
     try:
         background_image = Image.open(Img)
     except Exception as e:
