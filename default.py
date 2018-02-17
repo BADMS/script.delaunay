@@ -14,6 +14,9 @@ import xbmc
 import xbmcgui
 import xbmcaddon
 import xbmcvfs
+import urllib
+import hashlib
+from PIL.ExifTags import TAGS
 
 # Detect python version before continuing
 if sys.version_info[0] == 3:
@@ -33,10 +36,49 @@ ADDON_LANGUAGE =    ADDON.getLocalizedString
 ADDON_PATH =        ADDON.getAddonInfo('path').decode("utf-8")
 ADDON_ID =          ADDON.getAddonInfo('id')
 ADDON_DATA_PATH =   os.path.join(xbmc.translatePath("special://profile/addon_data/%s" % ADDON_ID))
+HOME =              xbmcgui.Window(10000)
 
 # Some types to make things a little easier
 Color = namedtuple('Color', 'r g b')
 Gradient = namedtuple('Gradient', 'start end')
+def log(txt):
+    if isinstance(txt, str):
+        txt = txt.decode("utf-8")
+    message = u'%s: %s' % (ADDON_ID, txt)
+    xbmc.log(msg=message.encode("utf-8"), level=xbmc.LOGNOTICE)
+
+def Check_XBMC_Internal(targetfile, filterimage):
+    cachedthumb = xbmc.getCacheThumbName(filterimage)
+    xbmc_vid_cache_file = os.path.join("special://profile/Thumbnails/Video", cachedthumb[0], cachedthumb)
+    xbmc_cache_filep = os.path.join("special://profile/Thumbnails/", cachedthumb[0], cachedthumb[:-4] + ".jpg")
+    xbmc_cache_filej = os.path.join("special://profile/Thumbnails/", cachedthumb[0], cachedthumb[:-4] + ".png")
+    if xbmcvfs.exists(xbmc_cache_filej):
+        return xbmc.translatePath(xbmc_cache_filej)
+    elif xbmcvfs.exists(xbmc_cache_filep):
+        return xbmc.translatePath(xbmc_cache_filep)
+    elif xbmcvfs.exists(xbmc_vid_cache_file):
+        return xbmc.translatePath(xbmc_vid_cache_file)
+    else:
+        filterimage = urllib.unquote(filterimage.replace("image://", "")).decode('utf8')
+        if filterimage.endswith("/"):
+            filterimage = filterimage[:-1]
+        xbmcvfs.copy(filterimage, targetfile)
+        return targetfile
+    return
+def Check_XBMC_Cache(targetfile):
+    cachedthumb = xbmc.getCacheThumbName(targetfile)
+    xbmc_vid_cache_file = os.path.join("special://profile/Thumbnails/Video", cachedthumb[0], cachedthumb)
+    xbmc_cache_filep = os.path.join("special://profile/Thumbnails/", cachedthumb[0], cachedthumb[:-4] + ".jpg")
+    xbmc_cache_filej = os.path.join("special://profile/Thumbnails/", cachedthumb[0], cachedthumb[:-4] + ".png")
+    if xbmcvfs.exists(xbmc_cache_filej):
+        return xbmc.translatePath(xbmc_cache_filej)
+    elif xbmcvfs.exists(xbmc_cache_filep):
+        return xbmc.translatePath(xbmc_cache_filep)
+    elif xbmcvfs.exists(xbmc_vid_cache_file):
+        return xbmc.translatePath(xbmc_vid_cache_file)
+    if xbmcvfs.exists(targetfile):
+        return targetfile
+    return ""
 
 
 def hex_to_color(hex_value):
@@ -280,92 +322,107 @@ if __name__ == "__main__":
         if arg == 'script.delaunay':
             continue
         elif arg.startswith('image='):
-            imaged = arg[6:]
-    input_filename = imaged
-    background_image = Image.open(imaged)
-    # Set the number of points to use
-    npoints = 100
-    output_filename='triangles.png'
-    distribution='uniform'
-    gname = 1
-    size = background_image.size
-    scale = 1.25
-    decluster = False
-    antialias = True
-    lines = True
-    line_color = None
-    vert_color = None
-    vert_radius = None
-    line_thickness = 1
-    darken_amount = 20
-    distribution == 'uniform'
-    points = generate_random_points(npoints, size, scale, decluster)
-    # Dedup the points
-    points = list(set(points))
+            input_filename = arg[6:]
 
-    # Calculate the triangulation
-    triangulation = delaunay_triangulation(points)
-
-    # Failed to find a triangulation
-
-    # Translate the points to screen coordinates
-    trans_triangulation = list(map(lambda x: cart_to_screen(x, size), triangulation))
-
-    # Assign colors to the triangles
-    if input_filename:
-        colors = color_from_image(background_image, trans_triangulation)
+    
+    filename = hashlib.md5(input_filename).hexdigest()
+    targetfile = os.path.join(ADDON_DATA_PATH, filename + '.png')
+    Cache = Check_XBMC_Cache(targetfile)
+    if Cache != "":
+        HOME.setProperty('Delaunay_ONE', Cache)
+        exit
+    Img = Check_XBMC_Internal(targetfile, input_filename)
+    if not Img:
+        exit
+    try:
+        background_image = Image.open(Img)
+    except Exception as e:
+        log("go_mapof: %s ops: %s" % (e,input_filename))
     else:
-        colors = color_from_gradient(gradient[gname], size, trans_triangulation)
+    
+        # Set the number of points to use
+        npoints = 100
+        distribution='uniform'
+        gname = 1
+        size = background_image.size
+        scale = 1.25
+        decluster = False
+        antialias = True
+        lines = True
+        line_color = None
+        vert_color = None
+        vert_radius = 0
+        line_thickness = 0
+        darken_amount = 0
+        distribution == 'uniform'
+        points = generate_random_points(npoints, size, scale, decluster)
+        # Dedup the points
+        points = list(set(points))
 
-    # Darken random triangles
-    if darken_amount:
-        for i in range(0, len(colors)):
-            c = colors[i]
-            d = randrange(darken_amount)
-            darkened = Color(max(c.r-d, 0), max(c.g-d, 0), max(c.b-d, 0))
-            colors[i] = darkened
+        # Calculate the triangulation
+        triangulation = delaunay_triangulation(points)
 
-    # Set up for anti-aliasing
-    if antialias:
-        # Scale the image dimensions
-        size = (size[0] * aa_amount, size[1] * aa_amount)
-        # Scale the graph
-        trans_triangulation = [
-            Triangle(
-                Point(t.a.x * aa_amount, t.a.y * aa_amount),
-                Point(t.b.x * aa_amount, t.b.y * aa_amount),
-                Point(t.c.x * aa_amount, t.c.y * aa_amount)
-            )
-            for t in trans_triangulation
-        ]
+        # Failed to find a triangulation
 
-    # Create image object
-    image = Image.new('RGB', size, 'white')
-    # Get a draw object
-    draw = ImageDraw.Draw(image)
-    # Draw the triangulation
-    draw_polys(draw, colors, trans_triangulation)
+        # Translate the points to screen coordinates
+        trans_triangulation = list(map(lambda x: cart_to_screen(x, size), triangulation))
 
-    if lines or line_thickness or line_color:
-        if line_color is None:
-            line_color = Color(255, 255, 255)
+        # Assign colors to the triangles
+        if input_filename:
+            colors = color_from_image(background_image, trans_triangulation)
         else:
-            line_color = hex_to_color(line_color)
+            colors = color_from_gradient(gradient[gname], size, trans_triangulation)
 
-        draw_lines(draw, line_color, trans_triangulation, line_thickness)
+        # Darken random triangles
+        if darken_amount:
+            for i in range(0, len(colors)):
+                c = colors[i]
+                d = randrange(darken_amount)
+                darkened = Color(max(c.r-d, 0), max(c.g-d, 0), max(c.b-d, 0))
+                colors[i] = darkened
 
-    if points or vert_radius or vert_color:
-        if vert_color is None:
-            vertex_color = Color(255, 255, 255)
-        else:
-            vertex_color = hex_to_color(vert_color)
+        # Set up for anti-aliasing
+        if antialias:
+            # Scale the image dimensions
+            size = (size[0] * aa_amount, size[1] * aa_amount)
+            # Scale the graph
+            trans_triangulation = [
+                Triangle(
+                    Point(t.a.x * aa_amount, t.a.y * aa_amount),
+                    Point(t.b.x * aa_amount, t.b.y * aa_amount),
+                    Point(t.c.x * aa_amount, t.c.y * aa_amount)
+                )
+                for t in trans_triangulation
+            ]
 
-        draw_points(draw, vertex_color, trans_triangulation, vert_radius)
+        # Create image object
+        image = Image.new('RGB', size, 'white')
+        # Get a draw object
+        draw = ImageDraw.Draw(image)
+        # Draw the triangulation
+        draw_polys(draw, colors, trans_triangulation)
 
-    # Resample the image using the built-in Lanczos filter
-    if antialias:
-        size = (int(size[0]/aa_amount), int(size[1]/aa_amount))
-        image = image.resize(size, Image.ANTIALIAS)
+        if lines or line_thickness or line_color:
+            if line_color is None:
+                line_color = Color(255, 255, 255)
+            else:
+                line_color = hex_to_color(line_color)
 
-    # Write the image to a file
-    image.save(targetfile)
+            draw_lines(draw, line_color, trans_triangulation, line_thickness)
+
+        if points or vert_radius or vert_color:
+            if vert_color is None:
+                vertex_color = Color(255, 255, 255)
+            else:
+                vertex_color = hex_to_color(vert_color)
+
+            draw_points(draw, vertex_color, trans_triangulation, vert_radius)
+
+        # Resample the image using the built-in Lanczos filter
+        if antialias:
+            size = (int(size[0]/aa_amount), int(size[1]/aa_amount))
+            image = image.resize(size, Image.ANTIALIAS)
+
+        # Write the image to a file
+        image.save(targetfile)
+        HOME.setProperty('Delaunay_ONE', targetfile)
